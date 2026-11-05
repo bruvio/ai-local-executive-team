@@ -1,0 +1,17 @@
+# Generated implementation plans (keep the directory + its README only)
+plans/*
+!plans/README.md
+
+# Auto-generated runtime state
+learned_settings.json
+model_performance.json
+
+# Local config (copied from config.yaml.example)
+config.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env

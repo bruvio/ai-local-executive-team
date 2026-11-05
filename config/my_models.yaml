@@ -43,6 +43,16 @@ fallback:
   # fast_reasoning: deepseek/deepseek-r1-0528-qwen3-8b
   # last_resort: google/gemma-3-12b
 
+# ── RED / BLUE / PURPLE TEAM OVERRIDES ────────────────
+# Used by purple_team_swarm.py. If left commented, each role falls back to a
+# board model: analyst→CPO, blue→CTO, red→CFO, purple→CEO.
+
+security:
+  # analyst: google/gemma-4-26b-a4b          # frames the problem + requirements
+  # blue:    qwen/qwen3-coder-30b             # designs & defends the solution
+  # red:     deepseek/deepseek-r1-distill-qwen-32b  # attacks it (reasoning model helps)
+  # purple:  google/gemma-4-31b               # synthesizes the final plan
+
 # ══════════════════════════════════════════════════════
 # EXAMPLES
 # ══════════════════════════════════════════════════════

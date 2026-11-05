@@ -1347,8 +1347,187 @@ def gen_general(user_message: str, requested_model: str):
     )
 
 
+def _tee_collect(generator, sink: list):
+    """Yield every SSE chunk through unchanged while accumulating the
+    assistant's text content into `sink` (so the phase output can be fed
+    to the next phase). Mirrors the parse in collect_full_response()."""
+    for chunk in generator:
+        if chunk.startswith("data: ") and "[DONE]" not in chunk:
+            try:
+                payload = json.loads(chunk[6:])
+                content = (
+                    payload.get("choices", [{}])[0]
+                           .get("delta", {})
+                           .get("content", "")
+                )
+                if content:
+                    sink.append(content)
+            except (json.JSONDecodeError, KeyError, IndexError):
+                pass
+        yield chunk
+
+
+def gen_purple_team(user_message: str, requested_model: str):
+    """
+    Red/Blue/Purple engagement (streaming, bridge-native).
+
+    Analyst → Blue (design) → Red (attack) → Purple (synthesize),
+    loading each role's model per phase (VRAM-friendly, like the board
+    meeting), then writes a self-contained implementation plan to plans/.
+    """
+    # Single-source the role system prompts and the file writer.
+    from agents.analyst     import SYSTEM as ANALYST_SYS
+    from agents.blue_team   import SYSTEM as BLUE_SYS
+    from agents.red_team    import SYSTEM as RED_SYS
+    from agents.purple_team import SYSTEM as PURPLE_SYS
+    from purple_team_swarm  import _assemble_document, _write_plan
+
+    phases = [
+        ("analyst", "🟡", "Analyst — Problem Frame & Requirements",
+         cfg.analyst_model or cfg.cpo_model, cfg.analyst_temperature, 2000),
+        ("blue", "🔵", "Blue Team — Design & Defend",
+         cfg.blue_model or cfg.cto_model, cfg.blue_temperature, 2000),
+        ("red", "🔴", "Red Team — Attack & Break",
+         cfg.red_model or cfg.cfo_model, cfg.red_temperature, 2000),
+        ("purple", "🟣", "Purple Team — Implementation Plan",
+         cfg.purple_model or cfg.ceo_model, cfg.purple_temperature, 4000),
+    ]
+
+    console.print()
+    console.print(
+        f"[bold magenta]  🟣 Red/Blue/Purple Engagement — "
+        f"{cfg.preset_name.upper()}[/bold magenta]"
+    )
+    for key, emoji, title, mid, _t, _tok in phases:
+        console.print(f"[dim]     {emoji} {key:<8} →  {mid}[/dim]")
+    console.print()
+
+    yield make_chunk("## 🟣 Red / Blue / Purple Engagement\n\n")
+    yield make_chunk(f"**Problem:** {user_message}\n\n")
+    yield make_chunk(
+        f"**Preset:** {cfg.preset_name.upper()} — "
+        f"{cfg.preset_description}\n\n"
+    )
+
+    requirements = ""
+    blue_text    = ""
+    red_text     = ""
+
+    def _run_phase(key, emoji, title, model, temp, tokens, prompt, system):
+        """Load model, stream the phase, return collected text."""
+        yield make_chunk(f"---\n\n### {emoji} {title}\n\n")
+        yield make_chunk(f"*⏳ Loading model...*\n\n")
+        try:
+            actual = ensure_model_loaded(model, force_exact=True)
+        except Exception as e:
+            yield make_chunk(f"\n\n> ❌ {key} model failed to load: `{e}`\n\n")
+            return ""
+        if actual != model:
+            yield make_chunk(f"*⚠️ Requested `{model}` — using `{actual}`*\n\n")
+        else:
+            yield make_chunk(f"*✅ `{actual}` ready*\n\n")
+
+        sink: list[str] = []
+        try:
+            yield from _tee_collect(
+                stream_agent(
+                    actual, key.upper(), prompt, system,
+                    temp, tokens, board_mode=True,
+                ),
+                sink,
+            )
+        except Exception as e:
+            yield make_chunk(f"\n\n> ❌ {key} error: `{e}`\n\n")
+        return "".join(sink)
+
+    # Phase 0 — Analyst
+    requirements = yield from _run_phase(
+        "analyst", "🟡", "Analyst — Problem Frame & Requirements",
+        cfg.analyst_model or cfg.cpo_model, cfg.analyst_temperature, 2000,
+        prompt=(
+            f"Raw request from the stakeholder:\n\"\"\"\n{user_message}\n\"\"\"\n\n"
+            "Produce the full problem frame using the required format."
+        ),
+        system=ANALYST_SYS,
+    )
+
+    # Phase 1 — Blue Team design
+    blue_text = yield from _run_phase(
+        "blue", "🔵", "Blue Team — Design & Defend",
+        cfg.blue_model or cfg.cto_model, cfg.blue_temperature, 2000,
+        prompt=(
+            f"PROBLEM FRAME & REQUIREMENTS (authoritative):\n{requirements}\n\n"
+            f"ORIGINAL REQUEST:\n\"\"\"\n{user_message}\n\"\"\"\n\n"
+            "This is Blue Team round 1. Produce your design using the "
+            "required format. Trace every decision to a requirement ID."
+        ),
+        system=BLUE_SYS,
+    )
+
+    # Phase 2 — Red Team attack
+    red_text = yield from _run_phase(
+        "red", "🔴", "Red Team — Attack & Break",
+        cfg.red_model or cfg.cfo_model, cfg.red_temperature, 2000,
+        prompt=(
+            f"PROBLEM FRAME & REQUIREMENTS (authoritative):\n{requirements}\n\n"
+            f"BLUE TEAM DESIGN TO ATTACK:\n{blue_text}\n\n"
+            f"ORIGINAL REQUEST:\n\"\"\"\n{user_message}\n\"\"\"\n\n"
+            "This is Red Team round 1. Break this design — concrete attacks "
+            "with real break scenarios, using the required format."
+        ),
+        system=RED_SYS,
+    )
+
+    # Phase 3 — Purple Team synthesis
+    plan_text = yield from _run_phase(
+        "purple", "🟣", "Purple Team — Implementation Plan",
+        cfg.purple_model or cfg.ceo_model, cfg.purple_temperature, 4000,
+        prompt=(
+            f"ORIGINAL REQUEST:\n\"\"\"\n{user_message}\n\"\"\"\n\n"
+            f"ANALYST — PROBLEM FRAME & REQUIREMENTS:\n{requirements}\n\n"
+            f"=== BLUE TEAM — ROUND 1 ===\n{blue_text}\n\n"
+            f"=== RED TEAM — ROUND 1 ===\n{red_text}\n\n"
+            "Produce the FINAL implementation plan using the mandatory "
+            "skeleton. A separate agent will implement from this document "
+            "alone, so it must be complete, ordered, evidence-backed, and "
+            "self-contained. Show every rejected option and residual risk."
+        ),
+        system=PURPLE_SYS,
+    )
+
+    # Persist the full, auditable document (plan + evidence appendices).
+    try:
+        results = {
+            "problem":     user_message,
+            "rounds":      1,
+            "models": {
+                "analyst": cfg.analyst_model or cfg.cpo_model,
+                "blue":    cfg.blue_model    or cfg.cto_model,
+                "red":     cfg.red_model     or cfg.cfo_model,
+                "purple":  cfg.purple_model  or cfg.ceo_model,
+            },
+            "requirements": requirements,
+            "blue_rounds":  [blue_text],
+            "red_rounds":   [red_text],
+            "plan":         plan_text,
+        }
+        document = _assemble_document(results)
+        path = _write_plan(document, user_message, None)
+        yield make_chunk(
+            f"\n\n---\n\n*✅ Implementation plan (with Red/Blue evidence "
+            f"appendices) saved to `{path}`.*\n"
+        )
+    except Exception as e:
+        console.print(f"[red]  ✗ Could not write plan file: {e}[/red]")
+        yield make_chunk(
+            f"\n\n---\n\n*⚠️ Plan generated but could not be written to "
+            f"disk: `{e}`*\n"
+        )
+
+
 ROUTE_GENERATORS = {
-    "full_board": gen_full_board,
+    "full_board":  gen_full_board,
+    "purple_team": gen_purple_team,
     "ceo":        gen_ceo,
     "cto":        gen_cto,
     "cfo":        gen_cfo,

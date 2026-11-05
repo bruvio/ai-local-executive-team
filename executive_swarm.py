@@ -130,11 +130,31 @@ def run_executive_meeting(prompt: str) -> dict:
     return responses
 
 
+def run_purple_team(prompt: str) -> str:
+    """
+    Red/Blue/Purple engagement → returns the final implementation plan
+    (markdown) with a pointer to the saved file. Imported lazily so the
+    board-meeting path never pays for it.
+    """
+    from purple_team_swarm import run_purple_team_workflow
+
+    result = run_purple_team_workflow(prompt, rounds=1)
+    plan = result["plan"]
+    if result.get("plan_path"):
+        plan += (
+            f"\n\n---\n*Full plan (with Red/Blue evidence appendices) saved to "
+            f"`{result['plan_path']}`.*"
+        )
+    return plan
+
+
 def run_single_agent(prompt: str) -> str:
     """Single agent for quick questions"""
     intent = detect_intent(prompt)
 
-    if intent == "cto" or intent == "default":
+    if intent == "purple_team":
+        return run_purple_team(prompt)
+    elif intent == "cto" or intent == "default":
         return cto_analyze(prompt)
     elif intent == "cfo":
         return cfo_analyze(prompt)
@@ -163,7 +183,9 @@ def smart_route(prompt: str) -> str:
     """
     intent = detect_intent(prompt)
 
-    if intent == "full_board":
+    if intent == "purple_team":
+        return run_purple_team(prompt)
+    elif intent == "full_board":
         return run_executive_meeting(prompt)["ceo_final"]
     else:
         return run_single_agent(prompt)

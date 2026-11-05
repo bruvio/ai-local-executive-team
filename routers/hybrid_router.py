@@ -19,6 +19,8 @@ with open(RULES_PATH, "r") as f:
 
 # Built once at import — avoids recreating the dict on every detect_intent() call
 _RULE_MAP: dict[str, list[str]] = {
+    # Checked first — specific multi-word triggers beat broad strategy ones.
+    "purple_team": ROUTING_RULES.get("purple_team_triggers", []),
     "full_board": ROUTING_RULES.get("full_board_triggers", []),
     "cto":        ROUTING_RULES.get("cto_only_triggers",   []),
     "cfo":        ROUTING_RULES.get("cfo_only_triggers",   []),
@@ -34,7 +36,7 @@ def detect_intent(prompt: str) -> str:
     Returns intent string.
 
     Returns:
-        'full_board' | 'cto' | 'cfo' | 'cpo' |
+        'purple_team' | 'full_board' | 'cto' | 'cfo' | 'cpo' |
         'coo' | 'vision' | 'default'
     """
     prompt_lower = prompt.lower()

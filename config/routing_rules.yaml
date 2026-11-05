@@ -1,6 +1,25 @@
 # config/routing_rules.yaml
 # Updated with vision triggers
 
+# Red / Blue / Purple team engagement — checked FIRST so its specific
+# multi-word triggers win over the broader full-board strategy triggers.
+purple_team_triggers:
+  - "red team"
+  - "blue team"
+  - "purple team"
+  - "red/blue"
+  - "red vs blue"
+  - "adversarial"
+  - "threat model"
+  - "attack surface"
+  - "implementation plan"
+  - "security review plan"
+  - "harden"
+  - "penetration"
+  - "pentest"
+  - "break this"
+  - "stress test the plan"
+
 full_board_triggers:
   - "should we"
   - "should i"

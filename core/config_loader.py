@@ -110,6 +110,15 @@ class Config:
         self.cfo_backup_model = self._get_board("cfo_backup", "qwen/qwq-32b")
         self.cpo_model        = self._get_board("cpo",        "google/gemma-4-26b-a4b")
         self.coo_model        = self._get_board("coo",        "qwen/qwen2.5-coder-14b-instruct")
+        # Red / Blue / Purple team models (optional).
+        # When None, the team agents fall back to board models at call time:
+        #   analyst → CPO, blue → CTO, red → CFO, purple → CEO.
+        # Override via a 'security:' block in a preset or config/my_models.yaml.
+        _sec = self._preset.get("security", {}) or {}
+        self.analyst_model = _sec.get("analyst")
+        self.blue_model    = _sec.get("blue")
+        self.red_model     = _sec.get("red")
+        self.purple_model  = _sec.get("purple")
         # Utility models
         self.autocomplete_model = self._get_utility("autocomplete", "google/gemma-4-e2b")
         self.embed_model        = self._get_utility("embed",        "nomic-ai/nomic-embed-text-v1.5")
@@ -140,6 +149,11 @@ class Config:
         self.cfo_temperature     = _gen.get("cfo_temperature",     0.3)
         self.cpo_temperature     = _gen.get("cpo_temperature",     0.8)
         self.coo_temperature     = _gen.get("coo_temperature",     0.5)
+        # Red / Blue / Purple team temperatures
+        self.analyst_temperature = _gen.get("analyst_temperature", 0.3)
+        self.blue_temperature    = _gen.get("blue_temperature",    0.4)
+        self.red_temperature     = _gen.get("red_temperature",     0.6)
+        self.purple_temperature  = _gen.get("purple_temperature",  0.5)
         self.default_max_tokens  = _gen.get("default_max_tokens",  2000)
         # Logging settings
         _log = self._raw.get("logging", {})
@@ -207,9 +221,15 @@ class Config:
         if fb.get("fast_reasoning"): self.fallback_fast_reasoning = fb["fast_reasoning"]
         if fb.get("last_resort"):    self.fallback_last_resort    = fb["last_resort"]
 
+        sec = overrides.get("security") or {}
+        if sec.get("analyst"): self.analyst_model = sec["analyst"]
+        if sec.get("blue"):    self.blue_model    = sec["blue"]
+        if sec.get("red"):     self.red_model     = sec["red"]
+        if sec.get("purple"):  self.purple_model  = sec["purple"]
+
         # Count active overrides to report (skip if none)
         active = sum(
-            1 for d in (board, util, fb)
+            1 for d in (board, util, fb, sec)
             for v in (d or {}).values() if v
         )
         if active:

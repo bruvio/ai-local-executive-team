@@ -185,14 +185,92 @@ Message arrives
     │   └─ Route directly to that executive
     │
     └─ executive-swarm → detect intent from message content:
-        ├─ Strategy / big picture  → full board (all 5 agents)
-        ├─ Technical / code        → CTO only
-        ├─ Financial / risk        → CFO only
-        ├─ Product / UX            → CPO only
-        └─ Tasks / planning        → COO only
+        ├─ Red/Blue/Purple, threat  → Red/Blue/Purple engagement
+        │   model, attack surface,     (Analyst → Blue ↔ Red → Purple,
+        │   implementation plan        writes a markdown plan to plans/)
+        ├─ Strategy / big picture   → full board (all 5 agents)
+        ├─ Technical / code         → CTO only
+        ├─ Financial / risk         → CFO only
+        ├─ Product / UX             → CPO only
+        └─ Tasks / planning         → COO only
 ```
 
 You can also bypass routing entirely by selecting a specific model (CEO, CTO, etc.) in your client's model picker.
+
+---
+
+## Red / Blue / Purple Team Engagement
+
+A second orchestrator, `purple_team_swarm.py`, resolves a problem through an
+**adversarial** workflow instead of a boardroom one. Four roles collaborate,
+then hand off a **self-contained markdown implementation plan** that a
+*separate* agent can execute without ever seeing the conversation.
+
+| Role | File | Mission |
+|------|------|---------|
+| 🟡 **Analyst** | `agents/analyst.py` | Understand the problem — numbered requirements, constraints, assumptions, success criteria, and how to apply red/blue/purple to *this* problem |
+| 🔵 **Blue Team** | `agents/blue_team.py` | Propose ≥2 candidate approaches, pick one, map it to the requirements, and defend/harden it |
+| 🔴 **Red Team** | `agents/red_team.py` | Break the Blue Team's design — concrete attacks, failure modes, broken assumptions, each with a severity and a repro scenario |
+| 🟣 **Purple Team** | `agents/purple_team.py` | Reconcile everything into one evidence-backed plan: final decision, **options considered and rejected (with rationale vs requirements)**, risk register, and ordered implementation steps |
+
+### Flow
+
+```
+Analyst (frame the problem + requirements)
+   │
+   ▼
+Blue Team  ── design ──▶  Red Team  ── attack ──┐
+   ▲                                            │
+   └──────────── harden (round 2..N) ◀──────────┘
+   │
+   ▼
+Purple Team ── synthesize ──▶  plans/implementation_plan_<slug>_<ts>.md
+```
+
+### Run it
+
+```bash
+# one attack/defend round (default)
+python purple_team_swarm.py "Design a rate limiter for our public API"
+
+# deeper engagement — two Blue↔Red rounds
+python purple_team_swarm.py --rounds 2 "Harden our file upload pipeline"
+
+# custom output path, or print-only
+python purple_team_swarm.py --out plans/uploads.md "..."
+python purple_team_swarm.py --no-file "..."
+```
+
+Or trigger it from any client on the `executive-swarm` model by using words
+like *red team*, *blue team*, *purple team*, *threat model*, *attack surface*,
+or *implementation plan* — the bridge routes those to this workflow.
+
+### The output plan
+
+Every run writes a markdown file to `plans/` containing:
+
+1. **Implementation Plan** — problem statement, requirements traced to IDs,
+   the final decision, **options considered and rejected with evidence**,
+   architecture, a reconciled risk register (Red Team findings → disposition),
+   dependency-ordered implementation steps (each with a "done when"), and a
+   verification plan.
+2. **Evidence appendix** — the Analyst's full problem frame, every Blue Team
+   design round, and every Red Team attack round, so each decision and every
+   rejected option is traceable to its source.
+
+### Models used
+
+Each role falls back to a board model (Analyst→CPO, Blue→CTO, Red→CFO,
+Purple→CEO) so it works with any preset out of the box. To assign dedicated
+models, add a `security:` block to a preset or to `config/my_models.yaml`:
+
+```yaml
+security:
+  analyst: google/gemma-4-26b-a4b
+  blue:    qwen/qwen3-coder-30b
+  red:     deepseek/deepseek-r1-distill-qwen-32b
+  purple:  google/gemma-4-31b
+```
 
 ---
 
@@ -428,6 +506,8 @@ ai-executive-team/
 ├── swarm_bridge_server.py      ← MAIN bridge server
 ├── executive_swarm.py          ← Board meeting orchestrator
 │                                  (CEO → CTO+CFO+CPO parallel → COO → CEO final)
+├── purple_team_swarm.py        ← Red/Blue/Purple engagement orchestrator
+│                                  (Analyst → Blue ↔ Red → Purple → plans/*.md)
 ├── load_model.py               ← Smart model loader
 ├── model_performance_log.py    ← Self-learning performance tracker
 ├── preset_selector.py          ← Preset switcher (used by start.bat)
@@ -439,7 +519,11 @@ ai-executive-team/
 │   ├── cfo.py                  ← Financial + risk
 │   ├── cpo.py                  ← Product + UX
 │   ├── coo.py                  ← Execution planning
-│   └── vision.py               ← Image / screenshot analysis
+│   ├── vision.py               ← Image / screenshot analysis
+│   ├── analyst.py              ← Problem framing + requirements (Phase 0)
+│   ├── blue_team.py            ← Blue Team — design & defend
+│   ├── red_team.py             ← Red Team — attack & break
+│   └── purple_team.py          ← Purple Team — synthesize the plan
 │
 ├── routers/
 │   ├── local_router.py         ← LM Studio HTTP client (connection pooling)
@@ -452,6 +536,9 @@ ai-executive-team/
 ├── config/
 │   ├── my_models.yaml          ← Your model overrides (edit this to swap models)
 │   └── routing_rules.yaml      ← Intent detection trigger words
+│
+├── plans/                      ← Generated implementation plans (gitignored)
+│   └── README.md               ← Explains the plan output format
 │
 ├── presets/
 │   ├── fastest.yaml
